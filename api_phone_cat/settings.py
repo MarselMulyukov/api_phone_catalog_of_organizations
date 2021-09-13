@@ -23,7 +23,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 SECRET_KEY = 'django-insecure-wm6n_2p-thfb)5mc#m%=z5!79%33$wc&lgm32__a2r5d)bf-v#'
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+DEBUG = False
 
 ALLOWED_HOSTS = ['*']
 
@@ -41,6 +41,7 @@ INSTALLED_APPS = [
     'api',
     'django_filters',
     'rest_framework_word_filter',
+    'drf_yasg',
 ]
 
 MIDDLEWARE = [
@@ -129,6 +130,9 @@ STATIC_URL = '/static/'
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 REST_FRAMEWORK = {
-        'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
-        'PAGE_SIZE': 10
-    } 
+        'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.LimitOffsetPagination',
+        'PAGE_SIZE': 10,
+        'DEFAULT_AUTHENTICATION_CLASSES': (
+            'api.authentications.EmailAndPasswordAuthentication',
+        ),
+    }

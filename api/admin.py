@@ -12,7 +12,7 @@ class WorkerAdmin(admin.ModelAdmin):
 
 
 class CompanyAdmin(admin.ModelAdmin):
-    list_display = ("title", "info", "address")
+    list_display = ("title", "info", "address", 'author')
     search_fields = ("title",)
     list_filter = ("title",)
     empty_value_display = "-пусто-"

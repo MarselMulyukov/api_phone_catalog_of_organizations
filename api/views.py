@@ -1,50 +1,65 @@
-from django.db.models import Q
-from django.utils.functional import empty
-from django_filters.rest_framework import DjangoFilterBackend
-from rest_framework import filters, generics, mixins
+from django.shortcuts import get_object_or_404
+from rest_framework import filters, generics, mixins, status, viewsets
 from rest_framework.response import Response
-from rest_framework_word_filter import FullWordSearchFilter
+from rest_framework.permissions import IsAuthenticated
+
+from .models import Company, Worker, User
+from .permissions import IsOwnerOrReadOnly, IsOwnerOrRedactorOfCompanyOrReadOnly, OnlyOwner
+from .serializers import AdmittedCompaniesSerializer, CompanySerializer, RedactorOfCompanySerializer, WorkerSerializer
 
 
-from .models import Company, Worker
-from .serializers import CompanyListSerializer, SearchSerializer, WorkerSerializer
+class CompanyViewSet(viewsets.ModelViewSet):
+    queryset = Company.objects.all().order_by("title")
+    serializer_class = CompanySerializer
+    permission_classes = [IsOwnerOrReadOnly,]
+    filter_backends = [filters.SearchFilter,]
+    search_fields = ['title', 'workers__name', 'workers__work_phone', 'workers__private_phone']
+
+    def perform_create(self, serializer):
+        serializer.save(author=self.request.user)
 
 
-class MySearchView(generics.ListAPIView):
-    queryset = Company.objects.all()
-    def list(self, request, *args, **kwargs):
-        companies = self.get_queryset()
-        context = {}
-        if 'q' in request.query_params:
-            q = request.query_params['q']
-            for s in companies:
-                s.filtered_workers = s.workers.filter(Q(name__icontains=q) | Q(work_phone__icontains=q)).order_by('name')[:5]
-            context['filtered']=True
-        ser = SearchSerializer(data=companies, many=True, context=context)
-        ser.is_valid()
-        return Response(ser.data)
-
-
-class WorkersUpdateDestroyView(mixins.DestroyModelMixin, mixins.UpdateModelMixin, generics.GenericAPIView):
+class WorkerViewSet(viewsets.ModelViewSet):
     serializer_class = WorkerSerializer
-    def get_queryset(self):
-        worker = Worker.objects.filter(company_id=self.kwargs['company_id'], pk=self.kwargs['pk'])
-        return worker
-    
-
-class WorkersCreateListView(generics.ListCreateAPIView):
-    serializer_class = WorkerSerializer
+    permission_classes = [IsOwnerOrRedactorOfCompanyOrReadOnly,]
     filter_backends = [filters.SearchFilter]
-    search_fields = ['name', 'position', 'work_phone']
+    search_fields = ['name', 'position', 'work_phone', 'private_phone']
 
     def get_queryset(self):
-        workers = Worker.objects.filter(company_id=self.kwargs['company_id'])
+        workers = Worker.objects.filter(company_id=self.kwargs['company_id']).order_by("name")
         return workers
-        
+
     def perform_create(self, serializer):
         return serializer.save(company_id=self.kwargs['company_id'])
 
 
-class CompaniesView(generics.ListAPIView):
-    queryset = Company.objects.all().order_by("title")
-    serializer_class = CompanyListSerializer
+class RedactorView(generics.ListCreateAPIView, mixins.DestroyModelMixin):
+    permission_classes = [OnlyOwner,]
+    serializer_class = RedactorOfCompanySerializer
+    
+    def get_queryset(self):
+        company = Company.objects.filter(id=self.kwargs['company_id'])
+        return company
+    
+    def post(self, request, *args, **kwargs):
+        company = Company.objects.get(id=self.kwargs['company_id'])
+        new_redactor = get_object_or_404(User, email=request.data['email'])
+        company.redactor.add(new_redactor)
+        return Response({'detail': 'redactor was added'}, status=status.HTTP_201_CREATED)
+
+    def delete(self, request, *args, **kwargs):
+        company = Company.objects.get(id=self.kwargs['company_id'])
+        redactor_to_delete = get_object_or_404(User, email=request.data['email'])
+        company.redactor.remove(redactor_to_delete)
+        return Response({'detail': 'redactor was deleted'}, status=status.HTTP_204_NO_CONTENT)
+
+
+class AdmittedCompaniesView(generics.ListAPIView):
+    serializer_class = AdmittedCompaniesSerializer
+    permission_classes = [IsAuthenticated,]
+    def get_queryset(self):
+        me = self.request.user
+        companies_to_edit = me.companies_to_edit.all()
+        my_company = Company.objects.filter(author=me)
+        companies_to_edit = companies_to_edit.union(my_company)
+        return companies_to_edit

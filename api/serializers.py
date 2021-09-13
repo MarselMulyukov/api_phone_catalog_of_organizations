@@ -1,49 +1,54 @@
-from re import S
-from django.db import models
-from django.db.models import fields
+from django.core.exceptions import ValidationError
 from rest_framework import serializers
-from rest_framework.validators import UniqueTogetherValidator
 
-from .models import Company, Worker
+from .models import Company, Worker, User
 
 
 class WorkerSerializer(serializers.ModelSerializer):
 
     class Meta:
-        fields = ("name", "position", "private_phone", "work_phone", "fax", "company")
+        fields = ("name", "position", "private_phone", "work_phone", "fax")
         model = Worker
-        validators = [UniqueTogetherValidator(
-            queryset=Worker.objects.all(),
-            fields=["name", "company"],
-            message="That man exist"
-        ),]
+
+    def validate(self, attrs):
+        name = attrs['name']
+        private_phone = attrs['private_phone']
+        work_phone = attrs['work_phone']
+        fax = attrs['fax']
+        company_id = self.context['view'].kwargs['company_id']
+        worker = Worker.objects.filter(private_phone=private_phone)
+        if worker and private_phone:
+            raise ValidationError('Личный номер телефона не уникален')
+        worker = Worker.objects.filter(name=name, company_id=company_id)
+        if worker:
+            raise ValidationError('В этой организации уже записан данный работник')
+        if not (private_phone or work_phone or fax):
+            raise ValidationError('Хотя бы один номер телефона или факс должны быть заполнены')
+        return attrs
 
 
-class WorkersSearchSerializer(serializers.ModelSerializer):
+class CompanySerializer(serializers.ModelSerializer):
+    workers = WorkerSerializer(read_only=True, many=True)
+
     class Meta:
-        model = Worker
-        fields = ('name', 'position', 'work_phone')
+        fields = ("title", "info", "address", "workers")
+        model = Company
 
 
-class SearchSerializer(serializers.ModelSerializer):
+class RedactorSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = User
+        fields = ("email",)
+
+
+class RedactorOfCompanySerializer(serializers.ModelSerializer):
+    redactor = RedactorSerializer(many=True)
     class Meta:
         model = Company
-        fields = '__all__'
-    def __init__(self, *args, **kwargs):
-        super(SearchSerializer, self).__init__(*args, **kwargs)
-        filtered = self.context.get("filtered", None)
-        if filtered is not None:
-            wrkrs = WorkersSearchSerializer(
-                source='filtered_workers', many=True)
-        else:
-            wrkrs = WorkersSearchSerializer(many=True)
+        fields = ("redactor",)
 
-        self.fields['workers'] = wrkrs
 
-    
-
-class CompanyListSerializer(serializers.ModelSerializer):
-
+class AdmittedCompaniesSerializer(serializers.ModelSerializer):
     class Meta:
-        fields = ("title", "info", "address")
-        model = Company
+        model =Company
+        fields = ("title",)
